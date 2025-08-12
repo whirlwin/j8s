@@ -13,13 +13,15 @@ import (
 )
 
 const asciiLogo = `
-     _ ___     
-    (_) _  \___
-    | | (_) |__/
- _  | |  _ /  
-( ) | | (_) \  
-|/  | |\___/ / 
- \___/ \___/    
+                      .-')    
+                     ( OO ).  
+     ,--.  .-----.  (_)---\_) 
+ .-')| ,| /  .-.  \ /    _ |  
+( OO |(_||   \_.' / \  :´ ´.  
+| ´-'|  | /  .-. '.  ´..'''.) 
+,--. |  ||  |   |  |.-._)   \ 
+|  '-'  / \  '-'  / \       / 
+ ´-----'   ´----''   ´-----'  
 `
 
 // Pod represents a Kubernetes pod from kubectl output
@@ -47,7 +49,7 @@ type PodList struct {
 
 func printLogo() {
 	fmt.Print(asciiLogo)
-	fmt.Println("j8s - Java 8 Stack trace tool for Kubernetes")
+	fmt.Println("j8s is a Java CLI tool for Kubernetes")
 	fmt.Println()
 }
 
