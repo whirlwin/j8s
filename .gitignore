@@ -1,0 +1,11 @@
+# Go build
+j8s
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+
+# Output of coverage tool
+*.out
