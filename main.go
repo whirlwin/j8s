@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const asciiLogo = `
@@ -56,6 +57,7 @@ func printLogo() {
 func printUsage() {
 	fmt.Println("Usage:")
 	fmt.Println("  j8s jstack    Interactive JVM thread dump from Kubernetes pod")
+	fmt.Println("  j8s dumpheap  Interactive JVM heap dump from Kubernetes pod (downloads locally)")
 	fmt.Println("  j8s           Show this help")
 	fmt.Println()
 }
@@ -71,6 +73,11 @@ func main() {
 	switch os.Args[1] {
 	case "jstack":
 		if err := runJstack(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	case "dumpheap":
+		if err := runDumpheap(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -119,6 +126,49 @@ func runJstack() error {
 	// Find Java process and run thread dump
 	if err := runThreadDump(selectedPod.Metadata.Name, selectedContainer); err != nil {
 		return fmt.Errorf("failed to run thread dump: %v", err)
+	}
+
+	return nil
+}
+
+func runDumpheap() error {
+	// Get list of pods
+	pods, err := listPods()
+	if err != nil {
+		return fmt.Errorf("failed to list pods: %v", err)
+	}
+
+	if len(pods) == 0 {
+		return fmt.Errorf("no pods found in current namespace")
+	}
+
+	// Select pod
+	selectedPod, err := selectPod(pods)
+	if err != nil {
+		return fmt.Errorf("failed to select pod: %v", err)
+	}
+
+	// Select container if multiple
+	var selectedContainer string
+	if len(selectedPod.Spec.Containers) > 1 {
+		selectedContainer, err = selectContainer(selectedPod.Spec.Containers)
+		if err != nil {
+			return fmt.Errorf("failed to select container: %v", err)
+		}
+	} else {
+		selectedContainer = selectedPod.Spec.Containers[0].Name
+	}
+
+	fmt.Printf("Selected pod: %s, container: %s\n", selectedPod.Metadata.Name, selectedContainer)
+	
+	// Deploy jattach to the container
+	if err := deployJattach(selectedPod.Metadata.Name, selectedContainer); err != nil {
+		return fmt.Errorf("failed to deploy jattach: %v", err)
+	}
+
+	// Find Java process and run heap dump
+	if err := runHeapDump(selectedPod.Metadata.Name, selectedContainer); err != nil {
+		return fmt.Errorf("failed to run heap dump: %v", err)
 	}
 
 	return nil
@@ -351,5 +401,75 @@ func runThreadDump(podName, containerName string) error {
 		return fmt.Errorf("jattach command failed: %v", err)
 	}
 
+	return nil
+}
+
+func runHeapDump(podName, containerName string) error {
+	fmt.Println("Finding Java process...")
+	
+	// Find Java PID using pidof first, then pgrep as fallback
+	var javaPID string
+	
+	// Try pidof java
+	cmd := exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "pidof", "java")
+	output, err := cmd.Output()
+	if err == nil && len(output) > 0 {
+		javaPID = strings.TrimSpace(string(output))
+		// If multiple PIDs, take the first one
+		if strings.Contains(javaPID, " ") {
+			javaPID = strings.Split(javaPID, " ")[0]
+		}
+	} else {
+		// Try pgrep as fallback
+		cmd = exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "pgrep", "-f", "java")
+		output, err = cmd.Output()
+		if err != nil || len(output) == 0 {
+			return fmt.Errorf("no Java process found in container")
+		}
+		javaPID = strings.TrimSpace(strings.Split(string(output), "\n")[0])
+	}
+
+	if javaPID == "" {
+		return fmt.Errorf("no Java process found in container")
+	}
+
+	// Validate PID is numeric
+	if _, err := strconv.Atoi(javaPID); err != nil {
+		return fmt.Errorf("invalid Java PID: %s", javaPID)
+	}
+
+	fmt.Printf("Found Java process with PID: %s\n", javaPID)
+	fmt.Println("Creating heap dump...")
+
+	// Generate timestamp for unique filename
+	timestamp := fmt.Sprintf("%d", time.Now().Unix())
+	remoteHeapDumpPath := fmt.Sprintf("/tmp/heapdump-%s.hprof", timestamp)
+	
+	// Run jattach to create heap dump
+	cmd = exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "/tmp/jattach", javaPID, "dumpheap", remoteHeapDumpPath)
+	output, err = cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("jattach dumpheap command failed: %v\nOutput: %s", err, string(output))
+	}
+
+	fmt.Printf("Heap dump created in container: %s\n", remoteHeapDumpPath)
+	
+	// Download heap dump file locally
+	localHeapDumpPath := fmt.Sprintf("heapdump-%s-%s.hprof", podName, timestamp)
+	fmt.Printf("Downloading heap dump to: %s\n", localHeapDumpPath)
+	
+	cmd = exec.Command("kubectl", "cp", fmt.Sprintf("%s:%s", podName, remoteHeapDumpPath), localHeapDumpPath, "-c", containerName)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to download heap dump: %v", err)
+	}
+
+	// Clean up heap dump file from container
+	fmt.Println("Cleaning up heap dump from container...")
+	cmd = exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "rm", "-f", remoteHeapDumpPath)
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Warning: failed to clean up heap dump from container: %v\n", err)
+	}
+
+	fmt.Printf("Heap dump successfully downloaded to: %s\n", localHeapDumpPath)
 	return nil
 }
