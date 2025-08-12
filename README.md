@@ -1,6 +1,6 @@
 # j8s
 
-A Java 8 Stack trace tool for Kubernetes. Interactive CLI for running JVM thread dumps on Java processes in Kubernetes pods.
+A Java 8 Stack trace tool for Kubernetes. Interactive CLI for running JVM thread dumps and heap dumps on Java processes in Kubernetes pods.
 
 ## Features
 
@@ -12,6 +12,7 @@ A Java 8 Stack trace tool for Kubernetes. Interactive CLI for running JVM thread
   - Fallback: Download directly in container using `curl` or `wget`
 - **Java process detection** using `pidof` and `pgrep`
 - **Thread dump execution** using jattach
+- **Heap dump creation and download** - heap dumps are created in container and downloaded locally
 - **No external dependencies** - uses only Go standard library
 
 ## Usage
@@ -28,6 +29,9 @@ make build
 
 # Run interactive jstack
 ./j8s jstack
+
+# Run interactive heap dump (downloads .hprof file locally)
+./j8s dumpheap
 ```
 
 ## Prerequisites
@@ -38,6 +42,7 @@ make build
 
 ## How it works
 
+### jstack command
 1. Lists all running pods in the current namespace using `kubectl get pods -o json`
 2. Prompts user to select a pod
 3. If multiple containers exist, prompts for container selection
@@ -45,6 +50,17 @@ make build
 5. Finds Java process PID using `pidof java` or `pgrep -f java`
 6. Executes thread dump using `/tmp/jattach <PID> threaddump`
 7. Streams output back to the terminal
+
+### dumpheap command
+1. Lists all running pods in the current namespace using `kubectl get pods -o json`
+2. Prompts user to select a pod
+3. If multiple containers exist, prompts for container selection
+4. Downloads jattach binary and deploys to `/tmp/jattach` in the container
+5. Finds Java process PID using `pidof java` or `pgrep -f java`
+6. Executes heap dump using `/tmp/jattach <PID> dumpheap <filename>`
+7. Downloads the heap dump file locally using `kubectl cp`
+8. Cleans up the heap dump file from the container
+9. Reports the local file location
 
 ## Error Handling
 
