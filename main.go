@@ -14,15 +14,10 @@ import (
 )
 
 const asciiLogo = `
-                      .-')    
-                     ( OO ).  
-     ,--.  .-----.  (_)---\_) 
- .-')| ,| /  .-.  \ /    _ |  
-( OO |(_||   \_.' / \  :´ ´.  
-| ´-'|  | /  .-. '.  ´..'''.) 
-,--. |  ||  |   |  |.-._)   \ 
-|  '-'  / \  '-'  / \       / 
- ´-----'   ´----''   ´-----'  
+  ▖▞▀▖   
+ ▗▖▚▄▘▞▀▘
+  ▌▌ ▌▝▀▖
+ ▄▘▝▀ ▀▀        
 `
 
 // Pod represents a Kubernetes pod from kubectl output
@@ -50,128 +45,75 @@ type PodList struct {
 
 func printLogo() {
 	fmt.Print(asciiLogo)
+	fmt.Println()
 	fmt.Println("j8s is a Java CLI tool for Kubernetes")
 	fmt.Println()
 }
 
 func printUsage() {
 	fmt.Println("Usage:")
-	fmt.Println("  j8s jstack    Interactive JVM thread dump from Kubernetes pod")
-	fmt.Println("  j8s dumpheap  Interactive JVM heap dump from Kubernetes pod (downloads locally)")
-	fmt.Println("  j8s           Show this help")
+	fmt.Println("  j8s dump threads    Interactive JVM thread dump from Kubernetes Pod")
+	fmt.Println("  j8s dump heap       Interactive JVM heap dump from Kubernetes Pod")
+	fmt.Println("  j8s                 Show this help")
 	fmt.Println()
 }
 
 func main() {
 	printLogo()
-	
+
 	if len(os.Args) < 2 {
 		printUsage()
 		return
 	}
-
-	switch os.Args[1] {
-	case "jstack":
-		if err := runJstack(); err != nil {
+	command := strings.Join(os.Args[1:], " ")
+	switch command {
+	case "dump threads":
+		if err := runDumpThreads(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-	case "dumpheap":
-		if err := runDumpheap(); err != nil {
+	case "dump heap":
+		if err := runDumpHeap(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
 	default:
-		fmt.Printf("Unknown command: %s\n\n", os.Args[1])
 		printUsage()
-		os.Exit(1)
 	}
 }
 
-func runJstack() error {
-	// Get list of pods
-	pods, err := listPods()
+func runDumpThreads() error {
+	podName, containerName, err := selectPodAndContainer()
 	if err != nil {
-		return fmt.Errorf("failed to list pods: %v", err)
+		return err
 	}
 
-	if len(pods) == 0 {
-		return fmt.Errorf("no pods found in current namespace")
-	}
+	fmt.Printf("Selected pod: %s, container: %s\n", podName, containerName)
 
-	// Select pod
-	selectedPod, err := selectPod(pods)
-	if err != nil {
-		return fmt.Errorf("failed to select pod: %v", err)
-	}
-
-	// Select container if multiple
-	var selectedContainer string
-	if len(selectedPod.Spec.Containers) > 1 {
-		selectedContainer, err = selectContainer(selectedPod.Spec.Containers)
-		if err != nil {
-			return fmt.Errorf("failed to select container: %v", err)
-		}
-	} else {
-		selectedContainer = selectedPod.Spec.Containers[0].Name
-	}
-
-	fmt.Printf("Selected pod: %s, container: %s\n", selectedPod.Metadata.Name, selectedContainer)
-	
 	// Deploy jattach to the container
-	if err := deployJattach(selectedPod.Metadata.Name, selectedContainer); err != nil {
+	if err := deployJattach(podName, containerName); err != nil {
 		return fmt.Errorf("failed to deploy jattach: %v", err)
 	}
 
 	// Find Java process and run thread dump
-	if err := runThreadDump(selectedPod.Metadata.Name, selectedContainer); err != nil {
-		return fmt.Errorf("failed to run thread dump: %v", err)
-	}
-
-	return nil
+	return runThreadDump(podName, containerName)
 }
 
-func runDumpheap() error {
-	// Get list of pods
-	pods, err := listPods()
+func runDumpHeap() error {
+	podName, containerName, err := selectPodAndContainer()
 	if err != nil {
-		return fmt.Errorf("failed to list pods: %v", err)
+		return err
 	}
 
-	if len(pods) == 0 {
-		return fmt.Errorf("no pods found in current namespace")
-	}
+	fmt.Printf("Selected pod: %s, container: %s\n", podName, containerName)
 
-	// Select pod
-	selectedPod, err := selectPod(pods)
-	if err != nil {
-		return fmt.Errorf("failed to select pod: %v", err)
-	}
-
-	// Select container if multiple
-	var selectedContainer string
-	if len(selectedPod.Spec.Containers) > 1 {
-		selectedContainer, err = selectContainer(selectedPod.Spec.Containers)
-		if err != nil {
-			return fmt.Errorf("failed to select container: %v", err)
-		}
-	} else {
-		selectedContainer = selectedPod.Spec.Containers[0].Name
-	}
-
-	fmt.Printf("Selected pod: %s, container: %s\n", selectedPod.Metadata.Name, selectedContainer)
-	
 	// Deploy jattach to the container
-	if err := deployJattach(selectedPod.Metadata.Name, selectedContainer); err != nil {
+	if err := deployJattach(podName, containerName); err != nil {
 		return fmt.Errorf("failed to deploy jattach: %v", err)
 	}
 
 	// Find Java process and run heap dump
-	if err := runHeapDump(selectedPod.Metadata.Name, selectedContainer); err != nil {
-		return fmt.Errorf("failed to run heap dump: %v", err)
-	}
-
-	return nil
+	return runHeapDump(podName, containerName)
 }
 
 func listPods() ([]Pod, error) {
@@ -304,9 +246,9 @@ func downloadJattachLocally() (string, error) {
 
 	// Download jattach binary - try the main repository
 	url := "https://github.com/jattach/jattach/releases/latest/download/jattach"
-	
+
 	fmt.Printf("Downloading jattach from %s...\n", url)
-	
+
 	resp, err := http.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("failed to download jattach: %v", err)
@@ -339,7 +281,7 @@ func downloadJattachLocally() (string, error) {
 
 func downloadJattachInContainer(podName, containerName string) error {
 	url := "https://github.com/jattach/jattach/releases/latest/download/jattach"
-	
+
 	// Try curl first
 	fmt.Println("Attempting download with curl...")
 	cmd := exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "curl", "-L", "-o", "/tmp/jattach", url)
@@ -357,10 +299,10 @@ func downloadJattachInContainer(podName, containerName string) error {
 
 func runThreadDump(podName, containerName string) error {
 	fmt.Println("Finding Java process...")
-	
+
 	// Find Java PID using pidof first, then pgrep as fallback
 	var javaPID string
-	
+
 	// Try pidof java
 	cmd := exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "pidof", "java")
 	output, err := cmd.Output()
@@ -396,7 +338,7 @@ func runThreadDump(podName, containerName string) error {
 	cmd = exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "/tmp/jattach", javaPID, "threaddump")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("jattach command failed: %v", err)
 	}
@@ -406,10 +348,10 @@ func runThreadDump(podName, containerName string) error {
 
 func runHeapDump(podName, containerName string) error {
 	fmt.Println("Finding Java process...")
-	
+
 	// Find Java PID using pidof first, then pgrep as fallback
 	var javaPID string
-	
+
 	// Try pidof java
 	cmd := exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "pidof", "java")
 	output, err := cmd.Output()
@@ -444,20 +386,19 @@ func runHeapDump(podName, containerName string) error {
 	// Generate timestamp for unique filename
 	timestamp := fmt.Sprintf("%d", time.Now().Unix())
 	remoteHeapDumpPath := fmt.Sprintf("/tmp/heapdump-%s.hprof", timestamp)
-	
+
 	// Run jattach to create heap dump
 	cmd = exec.Command("kubectl", "exec", podName, "-c", containerName, "--", "/tmp/jattach", javaPID, "dumpheap", remoteHeapDumpPath)
 	output, err = cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("jattach dumpheap command failed: %v\nOutput: %s", err, string(output))
 	}
+	fmt.Printf("Heap dump created at %s:%s\n", podName, remoteHeapDumpPath)
 
-	fmt.Printf("Heap dump created in container: %s\n", remoteHeapDumpPath)
-	
 	// Download heap dump file locally
 	localHeapDumpPath := fmt.Sprintf("heapdump-%s-%s.hprof", podName, timestamp)
 	fmt.Printf("Downloading heap dump to: %s\n", localHeapDumpPath)
-	
+
 	cmd = exec.Command("kubectl", "cp", fmt.Sprintf("%s:%s", podName, remoteHeapDumpPath), localHeapDumpPath, "-c", containerName)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to download heap dump: %v", err)
@@ -472,4 +413,35 @@ func runHeapDump(podName, containerName string) error {
 
 	fmt.Printf("Heap dump successfully downloaded to: %s\n", localHeapDumpPath)
 	return nil
+}
+
+func selectPodAndContainer() (string, string, error) {
+	// Get list of pods
+	pods, err := listPods()
+	if err != nil {
+		return "", "", fmt.Errorf("failed to list pods: %v", err)
+	}
+
+	if len(pods) == 0 {
+		return "", "", fmt.Errorf("no pods found in current namespace")
+	}
+
+	// Select pod
+	selectedPod, err := selectPod(pods)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to select pod: %v", err)
+	}
+
+	// Select container if multiple
+	var selectedContainer string
+	if len(selectedPod.Spec.Containers) > 1 {
+		selectedContainer, err = selectContainer(selectedPod.Spec.Containers)
+		if err != nil {
+			return "", "", fmt.Errorf("failed to select container: %v", err)
+		}
+	} else {
+		selectedContainer = selectedPod.Spec.Containers[0].Name
+	}
+
+	return selectedPod.Metadata.Name, selectedContainer, nil
 }
