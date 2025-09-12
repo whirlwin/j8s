@@ -1,19 +1,24 @@
 # j8s
 
-A Java 8 Stack trace tool for Kubernetes. Interactive CLI for running JVM thread dumps and heap dumps on Java processes in Kubernetes pods.
+[![Build and Publish](https://github.com/whirlwin/j8s/actions/workflows/build-and-publish.yaml/badge.svg)](https://github.com/whirlwin/j8s/actions/workflows/build-and-publish.yaml)
 
-## Features
+A Java 8 Stack trace debug for Kubernetes. Interactive CLI for running JVM thread dumps and heap dumps on Java processes in Kubernetes Pods.
 
-- **ASCII logo** displayed on startup
-- **Interactive pod selection** from current Kubernetes namespace
-- **Container selection** for multi-container pods
-- **Automatic jattach deployment** with fallback strategies:
-  - Primary: Download locally and copy via `kubectl cp`
-  - Fallback: Download directly in container using `curl` or `wget`
-- **Java process detection** using `pidof` and `pgrep`
-- **Thread dump execution** using jattach
-- **Heap dump creation and download** - heap dumps are created in container and downloaded locally
-- **No external dependencies** - uses only Go standard library
+
+```text
+
+  ▖▞▀▖
+ ▗▖▚▄▘▞▀▘
+  ▌▌ ▌▝▀▖
+ ▄▘▝▀ ▀▀
+
+j8s is a Java CLI tool for Kubernetes
+
+Usage:
+  j8s dump threads    Interactive JVM thread dump from Kubernetes pod
+  j8s dump heap       Interactive JVM heap dump from Kubernetes pod (downloads locally)
+  j8s                 Show this help
+```
 
 ## Usage
 
@@ -27,11 +32,11 @@ make build
 # Show help and logo
 ./j8s
 
-# Run interactive jstack
-./j8s jstack
+# Run interactive thread dump
+./j8s dump threads
 
 # Run interactive heap dump (downloads .hprof file locally)
-./j8s dumpheap
+./j8s dump heap
 ```
 
 ## Prerequisites
@@ -40,37 +45,3 @@ make build
 - Running Java pods in the current namespace
 - Network access for downloading jattach (if not using kubectl cp)
 
-## How it works
-
-### jstack command
-1. Lists all running pods in the current namespace using `kubectl get pods -o json`
-2. Prompts user to select a pod
-3. If multiple containers exist, prompts for container selection
-4. Downloads jattach binary and deploys to `/tmp/jattach` in the container
-5. Finds Java process PID using `pidof java` or `pgrep -f java`
-6. Executes thread dump using `/tmp/jattach <PID> threaddump`
-7. Streams output back to the terminal
-
-### dumpheap command
-1. Lists all running pods in the current namespace using `kubectl get pods -o json`
-2. Prompts user to select a pod
-3. If multiple containers exist, prompts for container selection
-4. Downloads jattach binary and deploys to `/tmp/jattach` in the container
-5. Finds Java process PID using `pidof java` or `pgrep -f java`
-6. Executes heap dump using `/tmp/jattach <PID> dumpheap <filename>`
-7. Downloads the heap dump file locally using `kubectl cp`
-8. Cleans up the heap dump file from the container
-9. Reports the local file location
-
-## Error Handling
-
-The tool provides helpful error messages for common scenarios:
-- No kubectl connection
-- No pods found in namespace
-- No Java processes in selected container
-- Failed jattach downloads
-- Permission issues
-
-## License
-
-MIT
