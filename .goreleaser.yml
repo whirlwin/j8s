@@ -1,34 +1,31 @@
-# .goreleaser.yml
+# .goreleaser.yml (v2)
+version: 2
+
 builds:
   - id: "j8s"
-    goos:
-      - linux
-      - windows
-      - darwin
-    goarch:
-      - amd64
-      - arm64
     main: .
     binary: j8s
     env:
       - CGO_ENABLED=0
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
 
 archives:
   - format: tar.gz
-    # this name template makes the OS and Arch compatible with the naming scheme of goreleaser
+    # name template compatible with GoReleaser’s OS/Arch templating
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     files:
       - README.md
 
 checksum:
-  name_template: 'checksums.txt'
+  name_template: "checksums.txt"
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-next"
+  version_template: "{{ incpatch .Version }}-next"
 
 changelog:
   sort: asc
   filters:
     exclude:
-      - '^docs:'
-      - '^test:'
+      - "^docs:"
+      - "^test:"
